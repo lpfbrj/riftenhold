@@ -150,6 +150,34 @@ export const STATUS_CAMPANHA_TOM = {
 /** Soldo de campanha sugerido para o miliciano convocado. */
 export const SOLDO_MILICIA = 200;
 
+// --- Missões & Convites de Divisão ---------------------------
+export const STATUS_MISSAO = ['Aberta', 'Em andamento', 'Concluída', 'Cancelada'];
+export const STATUS_MISSAO_TOM = {
+  'Aberta': 'warn',
+  'Em andamento': 'gold',
+  'Concluída': 'ok',
+  'Cancelada': 'off',
+};
+
+export const VISIBILIDADES_MISSAO = [
+  { id: 'exercito', nome: 'Todo o Exército', descricao: 'Visível no quadro de missões de qualquer soldado.' },
+  { id: 'divisao',  nome: 'Apenas a Divisão', descricao: 'Visível apenas para membros da divisão emissora.' },
+];
+
+export const INSCRICOES_MISSAO = [
+  { id: 'aberta',  nome: 'Aberta a todo o Exército', descricao: 'Qualquer soldado pode se voluntariar.' },
+  { id: 'divisao', nome: 'Restrita à Divisão', descricao: 'Apenas soldados desta divisão podem participar.' },
+];
+
+export const STATUS_CONVITE_DIVISAO = ['Pendente', 'Aceito', 'Recusado', 'Cancelado'];
+export const STATUS_CONVITE_TOM = {
+  Pendente: 'warn',
+  Aceito: 'ok',
+  Recusado: 'perigo',
+  Cancelado: 'off',
+};
+export const STATUS_CONVITE_DIVISAO_TOM = STATUS_CONVITE_TOM;
+
 // --- Perícias ------------------------------------------------
 // Níveis na ordem de progressão (a planilha listava em ordem alfabética).
 export const NIVEIS = ['N/A', 'Novato', 'Aprendiz', 'Adepto', 'Especialista', 'Mestre'];

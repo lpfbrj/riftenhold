@@ -1,23 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useDados } from '../lib/store.jsx';
-import { salvarPericiasProprias } from '../lib/db.js';
-import { NIVEIS, GRUPOS_PERICIA, CICLO_SALARIO } from '../lib/constants.js';
+import { salvarPericiasProprias, responderConviteDivisao, desinscreverDeMissao } from '../lib/db.js';
+import { NIVEIS, GRUPOS_PERICIA, CICLO_SALARIO, STATUS_MISSAO_TOM } from '../lib/constants.js';
 import { poderDe } from './Exercito.jsx';
-import { Painel, Stat, Selo, Icone, Vazio, Pips } from '../components/ui.jsx';
+import { Painel, Stat, Selo, Icone, Vazio, Pips, Confirmar } from '../components/ui.jsx';
 import {
   divisaoDe, nomeDaDivisao, nomeDaPatente, capitaoDa, soldoDe, dataBR, septims,
+  convitesPendentesDoSoldado,
 } from '../lib/forcas.js';
 
 /**
  * A ficha militar do próprio soldado. Patente, divisão, soldo e status
- * são decisão do comando — ele lê, não muda. As habilidades são dele:
- * é ele quem treina, é ele quem atualiza.
+ * são decisão do comando — ele lê, não muda.
+ *
+ * Além das habilidades e soldo, o soldado gerencia:
+ * - Convites de Divisão: Aceita ou recusa convites enviados pelos capitães.
+ * - Missões Atribuídas e Voluntariadas: Acompanha suas missões e recompensas.
  */
 export default function MinhaFichaMilitar({ usuario }) {
   const d = useDados();
   const guardas = d.guardas || [];
   const divisoes = d.divisoes || [];
   const patentes = d.patentes || [];
+  const convites = d.convites_divisao || [];
+  const missoes = d.missoes_exercito || [];
 
   const eu = useMemo(() => guardas.find(
     (g) => g.id === usuario.guarda_id ||
@@ -27,10 +33,10 @@ export default function MinhaFichaMilitar({ usuario }) {
 
   const [rascunho, setRascunho] = useState(null);
   const [salvo, setSalvo] = useState(false);
+  const [mensagemSucesso, setMensagemSucesso] = useState('');
   const [erro, setErro] = useState('');
   const [ocupado, setOcupado] = useState(false);
-  // O aviso some sozinho — mas não pode tentar sumir depois que a
-  // tela já saiu do ar.
+
   const relogio = useRef(null);
   useEffect(() => () => clearTimeout(relogio.current), []);
 
@@ -47,6 +53,12 @@ export default function MinhaFichaMilitar({ usuario }) {
   const minhaDivisao = divisaoDe(eu, divisoes);
   const capitao = minhaDivisao ? capitaoDa(minhaDivisao, guardas) : null;
   const soldo = soldoDe(eu, patentes);
+  const meusConvites = convitesPendentesDoSoldado(eu, convites);
+
+  // Minhas missões inscritas
+  const minhasMissoes = missoes.filter(
+    (m) => Array.isArray(m.participantes) && m.participantes.some((p) => p.guarda_id === eu.id),
+  );
 
   const editando = rascunho !== null;
   const pericias = editando ? rascunho.pericias : (eu.pericias || {});
@@ -78,6 +90,49 @@ export default function MinhaFichaMilitar({ usuario }) {
     }
   };
 
+  const aoResponderConvite = async (conviteId, resposta, divNome) => {
+    if (ocupado) return;
+    setErro('');
+    setOcupado(true);
+    try {
+      await responderConviteDivisao({
+        conviteId,
+        resposta,
+        usuario,
+        divisaoNome: divNome,
+      });
+      await d.recarregar();
+      setMensagemSucesso(
+        resposta === 'aceitar'
+          ? `Convite aceito! Você agora faz parte da divisão ${divNome}.`
+          : 'Convite recusado com sucesso.',
+      );
+      clearTimeout(relogio.current);
+      relogio.current = setTimeout(() => setMensagemSucesso(''), 4000);
+    } catch (ex) {
+      setErro(ex.message || 'Não foi possível responder ao convite.');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const aoCancelarInscricaoMissao = async (missaoId) => {
+    if (ocupado) return;
+    setErro('');
+    setOcupado(true);
+    try {
+      await desinscreverDeMissao(missaoId, eu.id);
+      await d.recarregar();
+      setMensagemSucesso('Inscrição cancelada com sucesso.');
+      clearTimeout(relogio.current);
+      relogio.current = setTimeout(() => setMensagemSucesso(''), 3500);
+    } catch (ex) {
+      setErro(ex.message || 'Não foi possível cancelar a inscrição.');
+    } finally {
+      setOcupado(false);
+    }
+  };
+
   return (
     <>
       <div className="pg-head">
@@ -85,13 +140,15 @@ export default function MinhaFichaMilitar({ usuario }) {
           <h1>Meu registro militar</h1>
           <p>
             Patente, divisão e soldo são do comando — quem muda isso é o Lorde
-            Comandante. As habilidades são suas: mantenha-as em dia.
+            Comandante. As habilidades e missões são suas: mantenha-as em dia.
           </p>
         </div>
         {!editando && (
           <div className="acoes">
-            <button className="btn primario"
-                    onClick={() => setRascunho({ pericias: { ...(eu.pericias || {}) }, notas: eu.notas || '' })}>
+            <button
+              className="btn primario"
+              onClick={() => setRascunho({ pericias: { ...(eu.pericias || {}) }, notas: eu.notas || '' })}
+            >
               <Icone nome="lapis" tam={15} /> Editar habilidades
             </button>
           </div>
@@ -100,15 +157,85 @@ export default function MinhaFichaMilitar({ usuario }) {
       <div className="regra" />
 
       {salvo && (
-        <div className="aviso-ok">
+        <div className="aviso-ok" style={{ marginBottom: 16 }}>
           <Icone nome="selo" tam={15} /> Habilidades salvas. O comando já enxerga a atualização.
+        </div>
+      )}
+
+      {mensagemSucesso && (
+        <div className="aviso-ok" style={{ marginBottom: 16 }}>
+          <Icone nome="selo" tam={15} /> {mensagemSucesso}
+        </div>
+      )}
+
+      {erro && (
+        <div className="login-erro" style={{ marginBottom: 16 }}>
+          {erro}
+        </div>
+      )}
+
+      {/* Convites de Divisão Pendentes */}
+      {meusConvites.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <Painel titulo={`Convites de Divisão Pendentes · ${meusConvites.length}`} destaque>
+            <p className="painel-nota">
+              Capitães de Divisão convocaram você para integrar suas fileiras. Analise o convite e escolha aceitar ou recusar:
+            </p>
+
+            <div className="lista-convites-pendentes" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {meusConvites.map((c) => {
+                const divAlvo = divisoes.find((d) => d.id === c.divisao_id);
+                return (
+                  <div
+                    key={c.id}
+                    className="convite-card"
+                    style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                      padding: '12px 16px', background: 'var(--bg-2)', borderRadius: 8, borderLeft: `4px solid ${divAlvo?.cor || 'var(--gold)'}`,
+                    }}
+                  >
+                    <div>
+                      <h4 style={{ margin: '0 0 4px', fontSize: 16 }}>
+                        Convite para: <strong>{c.divisao_nome}</strong>
+                      </h4>
+                      <p style={{ margin: 0, color: 'var(--txt-2)', fontSize: 13 }}>
+                        Enviado por <strong>{c.remetente_nome}</strong> ({c.remetente_cargo || 'Capitão'}) em {dataBR(c.criado_em)}
+                      </p>
+                      {c.mensagem && (
+                        <p style={{ margin: '6px 0 0', fontStyle: 'italic', color: 'var(--txt-1)', fontSize: 13 }}>
+                          "{c.mensagem}"
+                        </p>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="btn primario pq"
+                        disabled={ocupado}
+                        onClick={() => aoResponderConvite(c.id, 'aceitar', c.divisao_nome)}
+                      >
+                        <Icone nome="selo" tam={13} /> Aceitar e Ingressar
+                      </button>
+                      <button
+                        className="btn perigo pq"
+                        disabled={ocupado}
+                        onClick={() => aoResponderConvite(c.id, 'recusar', c.divisao_nome)}
+                      >
+                        Recusar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Painel>
         </div>
       )}
 
       <div className="grade g4" style={{ marginBottom: 18 }}>
         <Stat rotulo="Patente" valor={nomeDaPatente(eu, patentes) || '—'} sub="definida pelo comando" tom="verde" />
         <Stat rotulo="Divisão" valor={nomeDaDivisao(eu, divisoes) || '—'}
-              sub={capitao ? `Capitão ${capitao.nome}` : 'sem capitão apontado'} tom="roxo" />
+              sub={capitao ? `Capitão ${capitao.nome}` : (minhaDivisao ? 'sem capitão' : 'sem divisão alocada')} tom="roxo" />
         <Stat rotulo="Situação" valor={eu.status || '—'} sub="no Exército"
               tom={eu.status === 'Operante' ? 'verde' : 'laranja'} />
         <Stat rotulo="Aptidão" valor={`${editando ? pct : atual}%`}
@@ -123,7 +250,7 @@ export default function MinhaFichaMilitar({ usuario }) {
           <Dado rotulo="Nome" valor={eu.nome} />
           <Dado rotulo="Raça" valor={eu.raca} />
           <Dado rotulo="Patente" valor={nomeDaPatente(eu, patentes)} />
-          <Dado rotulo="Divisão" valor={nomeDaDivisao(eu, divisoes)} />
+          <Dado rotulo="Divisão" valor={nomeDaDivisao(eu, divisoes) || 'Nenhuma (Combatente Geral)'} />
         </div>
         {minhaDivisao?.funcoes && (
           <p className="painel-nota" style={{ margin: '12px 0 0' }}>
@@ -134,6 +261,59 @@ export default function MinhaFichaMilitar({ usuario }) {
           <Icone nome="livro" tam={13} /> Seus dados civis — nome, raça, ofício, propriedades —
           ficam na Cidade de Riften, e você entra lá com estas mesmas credenciais.
         </p>
+      </Painel>
+
+      <div style={{ height: 16 }} />
+
+      {/* Minhas Missões */}
+      <Painel titulo={`Minhas Missões Militares · ${minhasMissoes.length}`}>
+        {minhasMissoes.length === 0 ? (
+          <Vazio simb="⚔">Você não está inscrito em nenhuma missão no momento. Acesse o Quartel &gt; Missões para se voluntariar.</Vazio>
+        ) : (
+          <div className="lista-minhas-missoes" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {minhasMissoes.map((m) => (
+              <div
+                key={m.id}
+                className="minha-missao-item"
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                  padding: '12px 14px', background: 'var(--bg-2)', borderRadius: 6,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span className="mono" style={{ fontWeight: 600, color: 'var(--txt-1)' }}>{m.numero || 'MIS'}</span>
+                    <strong style={{ fontSize: 15 }}>{m.titulo}</strong>
+                    <Selo tom={STATUS_MISSAO_TOM[m.status] || 'warn'} ponto>{m.status}</Selo>
+                  </div>
+                  <p style={{ margin: 0, color: 'var(--txt-2)', fontSize: 13 }}>
+                    <strong>Objetivo:</strong> {m.objetivo}
+                  </p>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 6, fontSize: 12, color: 'var(--txt-3)' }}>
+                    <span>Recompensa: <strong style={{ color: 'var(--gold)' }}>{septims(m.recompensa)}</strong></span>
+                    <span>Prazo: <strong>{m.prazo ? dataBR(m.prazo) : 'Sem prazo'}</strong></span>
+                    <span>Divisão: <strong>{m.divisao_nome || 'Geral'}</strong></span>
+                  </div>
+                </div>
+
+                <div>
+                  {m.status === 'Aberta' && (
+                    <button
+                      className="btn perigo pq"
+                      disabled={ocupado}
+                      onClick={() => aoCancelarInscricaoMissao(m.id)}
+                    >
+                      Cancelar Inscrição
+                    </button>
+                  )}
+                  {m.status === 'Concluída' && (
+                    <Selo tom="ok">Recompensa Homologada</Selo>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Painel>
 
       <div style={{ height: 16 }} />

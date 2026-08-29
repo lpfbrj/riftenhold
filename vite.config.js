@@ -7,6 +7,10 @@ const single = process.env.DEMO_SINGLEFILE === '1';
 
 export default defineConfig({
   plugins: [react(), ...(single ? [viteSingleFile()] : [])],
+  server: {
+    host: '0.0.0.0',
+    port: 3000,
+  },
   esbuild: {
     // O que ajuda a depurar não precisa viajar até o navegador de quem joga.
     drop: ['debugger'],

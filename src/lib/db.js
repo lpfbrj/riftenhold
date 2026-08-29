@@ -8,7 +8,7 @@ import { supabase, SUPABASE_ATIVO, MODO } from './supabase.js';
 import { mesmaSenha, mesmoId } from './senha.js';
 import {
   CLAS_SEED, CORTE_SEED, PROPRIEDADES_SEED, GUARDAS_SEED, CIVIS_SEED,
-  TRABALHADORES_SEED, ASSENTAMENTOS, MILICIA_SEED,
+  TRABALHADORES_SEED, ASSENTAMENTOS, MILICIA_SEED, MISSOES_SEED, CONVITES_SEED,
 } from '../data/rift.js';
 import { DIVISOES_SEED, PATENTES_SEED, SOLDO_MILICIA } from './constants.js';
 import { soldoDe, dataBR } from './forcas.js';
@@ -34,7 +34,7 @@ const CHAVE = 'riften-hold:v1';
 const memoria = { valor: null };
 
 export const TABELAS_LOCAIS = [
-  'civis', 'clas', 'corte', 'guardas', 'divisoes', 'patentes', 'milicia', 'campanhas', 'cofre', 'cobrancas', 'precos', 'prisoes', 'movimentos', 'trabalhadores', 'pedidos_dinastia', 'avisos', 'pedidos_compra', 'editais', 'propostas', 'propriedades', 'assentamentos', 'licencas', 'registros', 'pedidos_casa', 'ofertas', 'guildas',
+  'civis', 'clas', 'corte', 'guardas', 'divisoes', 'patentes', 'milicia', 'campanhas', 'cofre', 'cobrancas', 'precos', 'prisoes', 'movimentos', 'trabalhadores', 'pedidos_dinastia', 'avisos', 'pedidos_compra', 'editais', 'propostas', 'propriedades', 'assentamentos', 'licencas', 'registros', 'pedidos_casa', 'ofertas', 'guildas', 'convites_divisao', 'missoes_exercito',
 ];
 
 /**
@@ -91,7 +91,7 @@ function juntarCargos(linhas, avisar) {
  * Rodam uma vez só, marcadas por `seed_versao`, e mexem apenas nos registros
  * nomeados aqui — o resto do que vocês cadastraram fica intacto.
  */
-export const VERSAO_SEED = 5;
+export const VERSAO_SEED = 6;
 
 const MUDANCAS = [
   {
@@ -125,6 +125,12 @@ const MUDANCAS = [
     // saldo. Gerar cobrança retroativa criaria dívida de mentira para
     // quem já pagou dentro do jogo.
     abrirTesouraria: true,
+  },
+  {
+    versao: 6,
+    // Quartel: administração das Divisões (convites, capitães, dispensas)
+    // e Sistema Geral de Missões do Exército com recompensas pagas pelo Cofre.
+    semearMissoesEConvites: true,
   },
 ];
 
@@ -206,6 +212,14 @@ function migrar(estado) {
         };
       });
     }
+    if (m.semearMissoesEConvites) {
+      if (!Array.isArray(estado.convites_divisao) || !estado.convites_divisao.length) {
+        estado.convites_divisao = CONVITES_SEED.map((c) => ({ ...c }));
+      }
+      if (!Array.isArray(estado.missoes_exercito) || !estado.missoes_exercito.length) {
+        estado.missoes_exercito = MISSOES_SEED.map((m) => ({ ...m }));
+      }
+    }
   }
   estado.seed_versao = VERSAO_SEED;
   return true;
@@ -260,6 +274,8 @@ function estadoInicial() {
     pedidos_casa: [],
     ofertas: [],
     guildas: [],
+    convites_divisao: CONVITES_SEED.map((c) => ({ ...c })),
+    missoes_exercito: MISSOES_SEED.map((m) => ({ ...m })),
     seed_versao: VERSAO_SEED,
   };
 }
@@ -2649,3 +2665,261 @@ export async function minhasCobrancas(sessao, contexto = {}) {
   if (error) throw new Error('Não foi possível consultar suas cobranças agora.');
   return rotularMinhas(sessao, data || [], { propriedades, clas });
 }
+
+/* ============================================================
+   Administração do Quartel: Divisões, Convites e Missões
+   ============================================================ */
+
+/**
+ * Envia um convite formal de uma divisão para um soldado do Exército.
+ */
+export async function enviarConviteDivisao({ divisao, guarda, remetente, mensagem = '' }) {
+  if (!divisao?.id || !guarda?.id) throw new Error('Divisão e soldado são obrigatórios.');
+
+  const convite = {
+    id: uid(),
+    divisao_id: divisao.id,
+    divisao_nome: divisao.nome,
+    guarda_id: guarda.id,
+    guarda_nome: guarda.nome,
+    civil_id: guarda.civil_id || '',
+    id_jogo: guarda.id_jogo || '',
+    remetente_id: remetente?.guarda_id || remetente?.id || '',
+    remetente_nome: remetente?.nome || remetente?.cargo || 'Comando da Divisão',
+    remetente_cargo: remetente?.cargo || remetente?.patente || 'Capitão',
+    mensagem: String(mensagem || '').trim(),
+    status: 'Pendente',
+    criado_em: new Date().toISOString(),
+  };
+
+  await inserir('convites_divisao', convite);
+
+  // Também emite um aviso no Quadro de Avisos para o soldado receber
+  if (guarda.civil_id) {
+    try {
+      await inserir('avisos', {
+        id: uid(),
+        titulo: `Convite de Divisão: ${divisao.nome}`,
+        texto: `${convite.remetente_nome} enviou um convite para você ingressar na divisão ${divisao.nome}. Acesse seu Registro Militar para aceitar ou recusar.${mensagem ? ` Mensagem: "${mensagem}"` : ''}`,
+        destino_civil_id: guarda.civil_id,
+        autor: `Exército — ${divisao.nome}`,
+        criado_em: new Date().toISOString(),
+      });
+    } catch { /* não impede o convite */ }
+  }
+
+  return convite;
+}
+
+/**
+ * Responde a um convite de divisão: Aceitar ou Recusar.
+ * Ao aceitar, atualiza a divisão do soldado no Exército.
+ */
+export async function responderConviteDivisao({ conviteId, resposta, usuario, divisaoNome }) {
+  const status = resposta === 'aceitar' ? 'Aceito' : 'Recusado';
+  const convites = await listar('convites_divisao');
+  const convite = convites.find((c) => c.id === conviteId);
+  if (!convite) throw new Error('Convite não encontrado.');
+  if (convite.status !== 'Pendente') throw new Error(`Este convite já foi ${convite.status.toLowerCase()}.`);
+
+  await atualizar('convites_divisao', conviteId, {
+    status,
+    respondido_em: new Date().toISOString(),
+  });
+
+  if (resposta === 'aceitar') {
+    // Aloca o soldado na divisão
+    await atualizar('guardas', convite.guarda_id, {
+      divisao_id: convite.divisao_id,
+      divisao: convite.divisao_nome || divisaoNome || '',
+    });
+  }
+
+  return { status, convite };
+}
+
+/**
+ * Cancela um convite de divisão enviado anteriormente.
+ */
+export async function cancelarConviteDivisao(conviteId) {
+  return atualizar('convites_divisao', conviteId, {
+    status: 'Cancelado',
+    cancelado_em: new Date().toISOString(),
+  });
+}
+
+/**
+ * Dispensa um soldado da divisão (desvincula da divisão, voltando a ficar sem divisão).
+ */
+export async function dispensarGuardaDaDivisao(guardaId, autor) {
+  return atualizar('guardas', guardaId, {
+    divisao_id: null,
+    divisao: '',
+  });
+}
+
+/**
+ * Transfere um soldado diretamente entre divisões (ação exclusiva do Lorde Comandante ou Corte).
+ */
+export async function transferirGuardaDireto(guardaId, novaDivisao) {
+  return atualizar('guardas', guardaId, {
+    divisao_id: novaDivisao?.id || null,
+    divisao: novaDivisao?.nome || '',
+  });
+}
+
+/**
+ * Cria ou atualiza uma missão do Exército de Riften.
+ */
+export async function salvarMissaoExercito(dadosMissao, autor = 'Comando Militar') {
+  const ehEdicao = Boolean(dadosMissao.id);
+  const id = dadosMissao.id || uid();
+
+  const registro = {
+    ...dadosMissao,
+    id,
+    titulo: String(dadosMissao.titulo || '').trim(),
+    descricao: String(dadosMissao.descricao || '').trim(),
+    objetivo: String(dadosMissao.objetivo || '').trim(),
+    recompensa: Number(dadosMissao.recompensa || 0),
+    vagas: Number(dadosMissao.vagas || 0),
+    status: dadosMissao.status || 'Aberta',
+    visibilidade: dadosMissao.visibilidade || 'exercito',
+    inscricao: dadosMissao.inscricao || 'aberta',
+    participantes: Array.isArray(dadosMissao.participantes) ? dadosMissao.participantes : [],
+    atualizado_em: new Date().toISOString(),
+  };
+
+  if (!ehEdicao) {
+    registro.criado_em = dadosMissao.criado_em || new Date().toISOString();
+  }
+
+  if (ehEdicao) {
+    await atualizar('missoes_exercito', id, registro);
+  } else {
+    await inserir('missoes_exercito', registro);
+  }
+
+  return registro;
+}
+
+/**
+ * Inscreve um soldado em uma missão do Exército.
+ */
+export async function inscreverEmMissao(missaoId, fichaGuarda) {
+  const missoes = await listar('missoes_exercito');
+  const missao = missoes.find((m) => m.id === missaoId);
+  if (!missao) throw new Error('Missão não encontrada.');
+  if (missao.status !== 'Aberta') throw new Error('Esta missão não está aceitando novas inscrições.');
+
+  const participantes = Array.isArray(missao.participantes) ? [...missao.participantes] : [];
+  if (participantes.some((p) => p.guarda_id === fichaGuarda.id)) {
+    throw new Error('Você já está inscrito nesta missão.');
+  }
+
+  if (missao.vagas && Number(missao.vagas) > 0 && participantes.length >= Number(missao.vagas)) {
+    throw new Error('As vagas desta missão já foram preenchidas.');
+  }
+
+  const novoParticipante = {
+    guarda_id: fichaGuarda.id,
+    nome: fichaGuarda.nome,
+    patente: fichaGuarda.patente || '',
+    civil_id: fichaGuarda.civil_id || '',
+    id_jogo: fichaGuarda.id_jogo || '',
+    inscrito_em: new Date().toISOString(),
+    status: 'Aprovado',
+  };
+
+  participantes.push(novoParticipante);
+
+  await atualizar('missoes_exercito', missaoId, {
+    participantes,
+    atualizado_em: new Date().toISOString(),
+  });
+
+  return novoParticipante;
+}
+
+/**
+ * Cancela a inscrição de um soldado em uma missão.
+ */
+export async function desinscreverDeMissao(missaoId, guardaId) {
+  const missoes = await listar('missoes_exercito');
+  const missao = missoes.find((m) => m.id === missaoId);
+  if (!missao) throw new Error('Missão não encontrada.');
+
+  const participantes = (missao.participantes || []).filter((p) => p.guarda_id !== guardaId);
+
+  await atualizar('missoes_exercito', missaoId, {
+    participantes,
+    atualizado_em: new Date().toISOString(),
+  });
+
+  return participantes;
+}
+
+/**
+ * Conclui uma missão do Exército, registra o relatório e realiza o pagamento
+ * das recompensas debitando do cofre da Tesouraria com rastro completo.
+ */
+export async function concluirMissaoExercito({ missaoId, relatorio = '', pagarRecompensa = true, autor = 'Comando do Exército' }) {
+  const missoes = await listar('missoes_exercito');
+  const missao = missoes.find((m) => m.id === missaoId);
+  if (!missao) throw new Error('Missão não encontrada.');
+  if (missao.status === 'Concluída') throw new Error('Esta missão já foi concluída anteriormente.');
+
+  const participantes = missao.participantes || [];
+  const recompensa = Number(missao.recompensa || 0);
+
+  // Calcula o valor total a debitar do cofre
+  let totalRecompensa = 0;
+  if (pagarRecompensa && recompensa > 0 && participantes.length > 0) {
+    if (missao.tipo_recompensa === 'total_dividido') {
+      totalRecompensa = recompensa;
+    } else {
+      totalRecompensa = recompensa * participantes.length;
+    }
+  }
+
+  // Se houver pagamento de recompensa, registra a saída no cofre da Tesouraria
+  if (totalRecompensa > 0) {
+    const nomesParticipantes = participantes.map((p) => p.nome).join(', ');
+    const lancamentoCofre = {
+      id: uid(),
+      data: new Date().toISOString(),
+      tipo: 'saida',
+      categoria: 'Militar',
+      valor: totalRecompensa,
+      descricao: `Recompensa da Missão ${missao.numero || 'MIS'} ("${missao.titulo}") — paga a ${participantes.length} participante(s): ${nomesParticipantes}`,
+      autor: autor || 'Comando do Exército',
+      referencia_tipo: 'missao_exercito',
+      referencia_id: missao.id,
+    };
+    await inserir('cofre', lancamentoCofre);
+  }
+
+  // Atualiza a missão como concluída
+  await atualizar('missoes_exercito', missaoId, {
+    status: 'Concluída',
+    relatorio: String(relatorio || '').trim(),
+    concluida_em: new Date().toISOString(),
+    concluida_por: autor,
+    recompensa_paga: totalRecompensa,
+  });
+
+  return { missaoId, totalRecompensa };
+}
+
+/**
+ * Cancela uma missão do Exército.
+ */
+export async function cancelarMissaoExercito(missaoId, motivo = '', autor = 'Comando do Exército') {
+  return atualizar('missoes_exercito', missaoId, {
+    status: 'Cancelada',
+    relatorio: motivo ? `Cancelada pelo comando: ${motivo}` : 'Cancelada pelo comando.',
+    cancelada_em: new Date().toISOString(),
+    cancelada_por: autor,
+  });
+}
+

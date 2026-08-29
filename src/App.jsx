@@ -64,9 +64,12 @@ const TELAS = [
   { id: 'trabalhadores', nome: 'Trabalhadores',        icone: 'martelo',    secao: 'Registros',       Comp: Trabalhadores, chave: 'trabalhadores' },
 ];
 
-/** O soldado vê a própria ficha, o registro de prisões e a logística. */
+/** O soldado vê a própria ficha, as divisões e missões do Quartel, o registro de prisões e a logística. */
 const TELAS_QUARTEL = [
-  { id: 'minha-militar', nome: 'Meu registro militar', icone: 'escudo', secao: 'Quartel General', Comp: MinhaFichaMilitar },
+  { id: 'minha-militar', nome: 'Meu registro militar', icone: 'escudo', secao: 'Quartel General', Comp: MinhaFichaMilitar,
+    badge: (d, u) => (d.convites_divisao || []).filter((c) => c.status === 'Pendente' && (c.civil_id === u?.civil_id || c.guarda_id === u?.guarda_id)).length || null, alerta: true },
+  { id: 'exercito',      nome: 'Quartel & Exército',   icone: 'espada', secao: 'Quartel General', Comp: Exercito,
+    badge: (d) => (d.missoes_exercito || []).filter((m) => m.status === 'Aberta').length || null },
   { id: 'prisoes',       nome: 'Registro de Prisões',  icone: 'grades', secao: 'Quartel General', Comp: Prisoes,
     badge: (d) => (d.prisoes || []).filter((x) => x.status === 'Cumprindo pena').length || null, alerta: true },
   { id: 'logistica',     nome: 'Logística',            icone: 'caixa',  secao: 'Quartel General', Comp: Logistica, chave: 'movimentos' },

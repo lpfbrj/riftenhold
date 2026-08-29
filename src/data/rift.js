@@ -332,3 +332,105 @@ export const MILICIA_SEED = [
 
 /** Aba "Trabalhadores" — sem nenhuma linha preenchida. */
 export const TRABALHADORES_SEED = [];
+
+/**
+ * Missões do Exército de Riften.
+ * Emitidas por divisões ou pelo Comando Geral.
+ */
+export const MISSOES_SEED = [
+  {
+    id: 'mis-1',
+    numero: 'MIS-0001',
+    titulo: 'Patrulha nas Estradas de Ivarstead',
+    descricao: 'Realizar ronda armada e vigilância ao longo da estrada real entre Riften e Ivarstead, assegurando a passagem segura de viajantes e carruagens mercantes.',
+    objetivo: 'Patrulhar os marcos quilométricos 3 a 12 e dispersar qualquer foco de bandidos ou animais selvagens.',
+    divisao_id: 'div-fronteira',
+    divisao_nome: 'Patrulha e Caça de Fronteiras',
+    emissor_id: 'g2',
+    emissor_nome: 'Sigrid Punho-de-Ferro',
+    emissor_cargo: 'Lorde Comandante',
+    prazo: '2026-09-15',
+    recompensa: 450,
+    tipo_recompensa: 'por_participante',
+    visibilidade: 'exercito',
+    inscricao: 'aberta',
+    vagas: 4,
+    status: 'Aberta',
+    participantes: [
+      { guarda_id: 'g5', nome: 'Ysolda Pé-Leve', patente: 'Soldado', civil_id: '', id_jogo: '', inscrito_em: diasAtras(4), status: 'Aprovado' },
+    ],
+    relatorio: '',
+    criado_em: diasAtras(4),
+  },
+  {
+    id: 'mis-2',
+    numero: 'MIS-0002',
+    titulo: 'Vigilância Noturna no Mercado e Docas',
+    descricao: 'Manter a ordem e combater contrabandos e arrombamentos durante o toque de recolher na área das docas de Riften.',
+    objetivo: 'Ronda preventiva noturna com revista de armazéns e contenção de tumultos.',
+    divisao_id: 'div-guarda',
+    divisao_nome: 'Guarda da Cidade',
+    emissor_id: 'g4',
+    emissor_nome: 'Bjorn Cava-Neve',
+    emissor_cargo: 'Sargento da Guarda',
+    prazo: '2026-09-10',
+    recompensa: 300,
+    tipo_recompensa: 'por_participante',
+    visibilidade: 'exercito',
+    inscricao: 'aberta',
+    vagas: 3,
+    status: 'Em andamento',
+    participantes: [
+      { guarda_id: 'g4', nome: 'Bjorn Cava-Neve', patente: 'Sargento', civil_id: '', id_jogo: '', inscrito_em: diasAtras(3), status: 'Aprovado' },
+    ],
+    relatorio: '',
+    criado_em: diasAtras(3),
+  },
+  {
+    id: 'mis-3',
+    numero: 'MIS-0003',
+    titulo: 'Investigação de Falsificação de Selos',
+    descricao: 'Apurar suspeitas de carimbos e selos falsificados da Corte circulando na Taverna The Bee and Barb.',
+    objetivo: 'Identificar a fonte dos pergaminhos falsificados e apreender o material de contrafação.',
+    divisao_id: 'div-inteligencia',
+    divisao_nome: 'Investigação e Inteligência',
+    emissor_id: 'g3',
+    emissor_nome: 'Varek Sombra-Rubra',
+    emissor_cargo: 'Capitão da Investigação',
+    prazo: '2026-09-20',
+    recompensa: 600,
+    tipo_recompensa: 'por_participante',
+    visibilidade: 'exercito',
+    inscricao: 'divisao',
+    vagas: 2,
+    status: 'Aberta',
+    participantes: [
+      { guarda_id: 'g3', nome: 'Varek Sombra-Rubra', patente: 'Capitão', civil_id: 'c-varek', id_jogo: 'Varek', inscrito_em: diasAtras(2), status: 'Aprovado' },
+    ],
+    relatorio: '',
+    criado_em: diasAtras(2),
+  },
+];
+
+/**
+ * Convites emitidos por Capitães ou Lorde Comandante para soldados
+ * entrarem em divisões.
+ */
+export const CONVITES_SEED = [
+  {
+    id: 'conv-1',
+    divisao_id: 'div-inteligencia',
+    divisao_nome: 'Investigação e Inteligência',
+    guarda_id: 'g5',
+    guarda_nome: 'Ysolda Pé-Leve',
+    civil_id: '',
+    id_jogo: '',
+    remetente_id: 'g3',
+    remetente_nome: 'Varek Sombra-Rubra',
+    remetente_cargo: 'Capitão da Investigação',
+    mensagem: 'Suas habilidades com arco e rastreamento são perfeitas para as nossas operações secretas.',
+    status: 'Pendente',
+    criado_em: diasAtras(1),
+  },
+];
+

@@ -2506,6 +2506,70 @@ grant execute on function public.minhas_cobrancas(text, text) to anon, authentic
 grant execute on function public.declarar_pagamento(text, text, uuid, text) to anon, authenticated;
 
 -- ------------------------------------------------------------
+-- 11. CONVITES DE DIVISÃO (Quartel / Exército)
+-- ------------------------------------------------------------
+create table if not exists public.convites_divisao (
+  id            uuid primary key default gen_random_uuid(),
+  divisao_id    text not null,
+  divisao_nome  text not null,
+  guarda_id     text not null,
+  guarda_nome   text not null,
+  civil_id      text default '',
+  id_jogo       text default '',
+  remetente_id  text default '',
+  remetente_nome text not null,
+  remetente_cargo text default 'Capitão',
+  mensagem      text default '',
+  status        text not null default 'Pendente'
+                check (status in ('Pendente','Aceito','Recusado','Cancelado')),
+  respondido_em timestamptz,
+  cancelado_em  timestamptz,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists convites_div_idx on public.convites_divisao(divisao_id);
+create index if not exists convites_guarda_idx on public.convites_divisao(guarda_id);
+create index if not exists convites_status_idx on public.convites_divisao(status);
+
+-- ------------------------------------------------------------
+-- 12. MISSÕES DO EXÉRCITO (Quartel / Exército)
+-- ------------------------------------------------------------
+create table if not exists public.missoes_exercito (
+  id            uuid primary key default gen_random_uuid(),
+  numero        text not null,
+  titulo        text not null,
+  descricao     text not null,
+  objetivo      text not null,
+  divisao_id    text,
+  divisao_nome  text,
+  emissor_id    text default '',
+  emissor_nome  text not null,
+  emissor_cargo text default '',
+  prazo         text,
+  recompensa    int not null default 0,
+  tipo_recompensa text not null default 'por_participante'
+                check (tipo_recompensa in ('por_participante','total_dividido')),
+  visibilidade  text not null default 'exercito'
+                check (visibilidade in ('exercito','divisao')),
+  inscricao     text not null default 'aberta'
+                check (inscricao in ('aberta','divisao')),
+  vagas         int not null default 0,
+  status        text not null default 'Aberta'
+                check (status in ('Aberta','Em andamento','Concluída','Cancelada')),
+  participantes jsonb not null default '[]'::jsonb,
+  relatorio     text default '',
+  recompensa_paga int default 0,
+  concluida_em  timestamptz,
+  concluida_por text,
+  cancelada_em  timestamptz,
+  cancelada_por text,
+  criado_em     timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+create index if not exists missoes_div_idx on public.missoes_exercito(divisao_id);
+create index if not exists missoes_status_idx on public.missoes_exercito(status);
+
+-- ------------------------------------------------------------
 -- 10. Timestamps automáticos
 -- ------------------------------------------------------------
 create or replace function public.touch()
@@ -2515,7 +2579,7 @@ begin new.atualizado_em = now(); return new; end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['civis','clas','corte','guardas','divisoes','patentes','milicia','campanhas','cofre','cobrancas','precos','prisoes','movimentos','trabalhadores','pedidos_dinastia','avisos','pedidos_compra','editais','propostas','propriedades','assentamentos','licencas']
+  foreach t in array array['civis','clas','corte','guardas','divisoes','patentes','milicia','campanhas','cofre','cobrancas','precos','prisoes','movimentos','trabalhadores','pedidos_dinastia','avisos','pedidos_compra','editais','propostas','propriedades','assentamentos','licencas','convites_divisao','missoes_exercito']
   loop
     execute format('drop trigger if exists %I_touch on public.%I;', t, t);
     execute format('create trigger %I_touch before update on public.%I for each row execute function public.touch();', t, t);

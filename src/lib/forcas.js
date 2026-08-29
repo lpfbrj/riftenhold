@@ -350,4 +350,194 @@ export function folhaDoHold(guardas = [], patentes = []) {
 
 export const septims = (n) => `${Number(n || 0).toLocaleString('pt-BR')} Septims`;
 
+/* ============================================================
+   Comando, Permissões e Administração do Quartel
+   ============================================================ */
+
+/**
+ * Encontra a ficha militar de um usuário logado (seja civil_id, guarda_id ou id_jogo).
+ */
+export function fichaMilitarDe(usuario, guardas = []) {
+  if (!usuario) return null;
+  const idJogo = norm(usuario.id_jogo);
+  const civilId = usuario.civil_id;
+  const guardaId = usuario.guarda_id;
+  const nome = norm(usuario.nome);
+
+  return (guardas || []).find((g) => (
+    (guardaId && g.id === guardaId) ||
+    (civilId && g.civil_id && g.civil_id === civilId) ||
+    (idJogo && g.id_jogo && norm(g.id_jogo) === idJogo) ||
+    (nome && norm(g.nome) === nome)
+  )) || null;
+}
+
+/**
+ * Verifica se o usuário é o Lorde Comandante do Hold (ou membro da Corte / Jarl).
+ * O cargo "lorde_comandante" na tabela `corte` define quem comanda.
+ */
+export function ehLordeComandante(usuario, { corte = [], guardas = [], patentes = [] } = {}) {
+  if (!usuario) return false;
+  if (usuario.tipo === 'corte') return true;
+  if (norm(usuario.cargo) === 'lorde comandante' || norm(usuario.papel) === 'jarl') return true;
+
+  const cargoComandante = (corte || []).find((c) => (c.cargo_id || c.id) === 'lorde_comandante');
+  if (cargoComandante?.nome) {
+    if (usuario.civil_id && cargoComandante.civil_id && usuario.civil_id === cargoComandante.civil_id) return true;
+    if (usuario.id_jogo && cargoComandante.id_jogo && norm(usuario.id_jogo) === norm(cargoComandante.id_jogo)) return true;
+    if (usuario.nome && norm(usuario.nome) === norm(cargoComandante.nome)) return true;
+  }
+
+  const ficha = fichaMilitarDe(usuario, guardas);
+  if (ficha) {
+    if (norm(ficha.patente) === 'comandante' || ficha.patente_id === 'pat-comandante') return true;
+    if (cargoComandante?.nome && norm(ficha.nome) === norm(cargoComandante.nome)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Verifica se o usuário é Capitão de uma divisão específica.
+ * Lorde Comandante também possui autoridade de comando geral.
+ */
+export function ehCapitaoDaDivisao(usuario, divisao, { guardas = [], corte = [], patentes = [] } = {}) {
+  if (!usuario || !divisao) return false;
+  if (ehLordeComandante(usuario, { corte, guardas, patentes })) return true;
+
+  const ficha = fichaMilitarDe(usuario, guardas);
+  const capId = divisao.capitao_id;
+  const capNome = norm(divisao.capitao);
+
+  if (ficha) {
+    if (capId && (ficha.id === capId || ficha.civil_id === capId)) return true;
+    if (capNome && norm(ficha.nome) === capNome) return true;
+  }
+
+  if (capId && (usuario.guarda_id === capId || usuario.civil_id === capId)) return true;
+  if (capNome && usuario.nome && norm(usuario.nome) === capNome) return true;
+
+  return false;
+}
+
+/**
+ * Divisões que o usuário administra (como Capitão ou Lorde Comandante).
+ */
+export function divisoesQueComanda(usuario, { divisoes = [], guardas = [], corte = [], patentes = [] } = {}) {
+  const ativas = divisoesAtivas(divisoes);
+  if (ehLordeComandante(usuario, { corte, guardas, patentes })) return ativas;
+  return ativas.filter((d) => ehCapitaoDaDivisao(usuario, d, { guardas, corte, patentes }));
+}
+
+/** Só o Palácio ou o Lorde Comandante pode criar nova divisão. */
+export const podeCriarDivisao = (usuario, d = {}) => ehLordeComandante(usuario, d);
+
+/** Só o Palácio ou o Lorde Comandante pode dissolver divisão. */
+export const podeDissolverDivisao = (usuario, d = {}) => ehLordeComandante(usuario, d);
+
+/** Só o Lorde Comandante ou a Corte pode transferir soldados diretamente entre divisões sem convite. */
+export const podeTransferirSoldado = (usuario, d = {}) => ehLordeComandante(usuario, d);
+
+/** Capitão administra a própria divisão (convida, aceita, dispensa, emite missão). */
+export const podeAdministrarDivisao = (usuario, divisao, d = {}) =>
+  ehCapitaoDaDivisao(usuario, divisao, d);
+
+/**
+ * Convites de divisão pendentes para um determinado soldado.
+ */
+export function convitesPendentesDoSoldado(usuario, { convites = [], guardas = [] } = {}) {
+  const ficha = fichaMilitarDe(usuario, guardas);
+  if (!ficha && !usuario?.civil_id && !usuario?.guarda_id) return [];
+
+  return (convites || []).filter((c) => {
+    if (c.status !== 'Pendente') return false;
+    if (ficha && c.guarda_id && c.guarda_id === ficha.id) return true;
+    if (ficha?.civil_id && c.civil_id && c.civil_id === ficha.civil_id) return true;
+    if (usuario.civil_id && c.civil_id && c.civil_id === usuario.civil_id) return true;
+    if (usuario.guarda_id && c.guarda_id && c.guarda_id === usuario.guarda_id) return true;
+    if (ficha?.nome && c.guarda_nome && norm(ficha.nome) === norm(c.guarda_nome)) return true;
+    return false;
+  });
+}
+
+/**
+ * Convites emitidos por uma divisão (ou por um capitão).
+ */
+export const convitesDaDivisao = (divisao, convites = []) =>
+  (convites || []).filter((c) => c.divisao_id === divisao?.id);
+
+/**
+ * Gera o próximo código de missão sequencial: MIS-0001, MIS-0002...
+ */
+export function proximoNumeroMissao(missoes = []) {
+  const max = (missoes || []).reduce((acc, m) => {
+    const match = String(m.numero || '').match(/MIS-(\d+)/i);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      return n > acc ? n : acc;
+    }
+    return acc;
+  }, 0);
+  return `MIS-${String(max + 1).padStart(4, '0')}`;
+}
+
+/**
+ * Filtra as missões que um usuário/soldado tem permissão para visualizar.
+ */
+export function missoesVisiveis(usuario, { missoes = [], divisoes = [], guardas = [], corte = [], patentes = [] } = {}) {
+  if (ehLordeComandante(usuario, { corte, guardas, patentes })) {
+    return [...(missoes || [])].sort((a, b) => new Date(b.criado_em || 0) - new Date(a.criado_em || 0));
+  }
+
+  const ficha = fichaMilitarDe(usuario, guardas);
+  const minhaDiv = ficha ? divisaoDe(ficha, divisoes) : null;
+  const divsComandadas = divisoesQueComanda(usuario, { divisoes, guardas, corte, patentes });
+  const idsComandadas = new Set(divsComandadas.map((d) => d.id));
+
+  return (missoes || []).filter((m) => {
+    if (m.visibilidade === 'exercito' || !m.visibilidade) return true;
+    if (minhaDiv && m.divisao_id === minhaDiv.id) return true;
+    if (idsComandadas.has(m.divisao_id)) return true;
+    return false;
+  }).sort((a, b) => new Date(b.criado_em || 0) - new Date(a.criado_em || 0));
+}
+
+/**
+ * Verifica se um soldado pode se inscrever em uma missão.
+ */
+export function podeSeInscreverNaMissao(missao, usuario, { guardas = [], divisoes = [] } = {}) {
+  if (!missao || missao.status !== 'Aberta') {
+    return { pode: false, motivo: 'Esta missão não está aberta para inscrições.' };
+  }
+
+  const ficha = fichaMilitarDe(usuario, guardas);
+  if (!ficha) {
+    return { pode: false, motivo: 'Apenas soldados com registro militar no Exército podem se voluntariar.' };
+  }
+
+  if (ficha.status === 'Aposentado') {
+    return { pode: false, motivo: 'Soldados aposentados não participam de operações ativas.' };
+  }
+
+  const participantes = missao.participantes || [];
+  const jaInscrito = participantes.some((p) => p.guarda_id === ficha.id || (p.civil_id && p.civil_id === ficha.civil_id));
+  if (jaInscrito) {
+    return { pode: false, motivo: 'Você já está inscrito nesta missão.' };
+  }
+
+  if (missao.vagas && Number(missao.vagas) > 0 && participantes.length >= Number(missao.vagas)) {
+    return { pode: false, motivo: 'Todas as vagas desta missão já foram preenchidas.' };
+  }
+
+  if (missao.inscricao === 'divisao') {
+    const minhaDiv = divisaoDe(ficha, divisoes);
+    if (!minhaDiv || minhaDiv.id !== missao.divisao_id) {
+      return { pode: false, motivo: `Inscrição restrita aos membros da divisão ${missao.divisao_nome || 'emissora'}.` };
+    }
+  }
+
+  return { pode: true };
+}
+
 export { CICLO_SALARIO };
+

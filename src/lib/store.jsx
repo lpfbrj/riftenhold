@@ -3,7 +3,7 @@ import * as db from './db.js';
 
 const Ctx = createContext(null);
 
-const TABELAS = ['civis', 'clas', 'corte', 'guardas', 'divisoes', 'patentes', 'milicia', 'campanhas', 'cofre', 'cobrancas', 'precos', 'prisoes', 'movimentos', 'trabalhadores', 'pedidos_dinastia', 'avisos', 'pedidos_compra', 'editais', 'propostas', 'propriedades', 'assentamentos', 'licencas', 'registros', 'pedidos_casa', 'ofertas', 'guildas'];
+const TABELAS = ['civis', 'clas', 'corte', 'guardas', 'divisoes', 'patentes', 'milicia', 'campanhas', 'cofre', 'cobrancas', 'precos', 'prisoes', 'movimentos', 'trabalhadores', 'pedidos_dinastia', 'avisos', 'pedidos_compra', 'editais', 'propostas', 'propriedades', 'assentamentos', 'licencas', 'registros', 'pedidos_casa', 'ofertas', 'guildas', 'convites_divisao', 'missoes_exercito'];
 
 export function DadosProvider({ usuario, children }) {
   const [dados, setDados] = useState(() => Object.fromEntries(TABELAS.map((t) => [t, []])));

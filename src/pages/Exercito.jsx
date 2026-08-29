@@ -19,6 +19,7 @@ import {
 import PainelDivisoes from './exercito/PainelDivisoes.jsx';
 import PainelHierarquia from './exercito/PainelHierarquia.jsx';
 import PainelMilicia from './exercito/PainelMilicia.jsx';
+import PainelMissoes from './exercito/PainelMissoes.jsx';
 
 const MAX = TODAS_PERICIAS.length * 5;
 
@@ -55,6 +56,7 @@ const ABAS = [
   { id: 'forcas',     nome: 'Forças de Riften', icone: 'espada',     sub: 'A soma das três forças' },
   { id: 'efetivo',    nome: 'Efetivo',          icone: 'pessoa',     sub: 'O rol do Exército' },
   { id: 'divisoes',   nome: 'Divisões',         icone: 'escudo',     sub: 'Criar, editar e comandar' },
+  { id: 'missoes',    nome: 'Missões',          icone: 'balanca',    sub: 'Ordens e recompensas' },
   { id: 'hierarquia', nome: 'Hierarquia',       icone: 'pergaminho', sub: 'Patentes e soldos' },
   { id: 'milicia',    nome: 'Milícia',          icone: 'estandarte', sub: 'Voluntários e convocação' },
 ];
@@ -71,16 +73,21 @@ export default function Exercito({ usuario }) {
   const milicia = d.milicia || [];
   const campanhas = d.campanhas || [];
   const clas = d.clas || [];
+  const corte = d.corte || [];
+  const missoes = d.missoes_exercito || [];
 
   const forcas = useMemo(
     () => resumoDasForcas({ guardas, clas, milicia }),
     [guardas, clas, milicia],
   );
 
+  const missoesAtivas = missoes.filter((m) => ['Aberta', 'Em andamento'].includes(m.status)).length;
+
   const contagem = {
     forcas: forcas.total,
     efetivo: guardas.length,
     divisoes: divisoesAtivas(divisoes).length,
+    missoes: missoesAtivas,
     hierarquia: patentesAtivas(patentes).length,
     milicia: miliciaViva(milicia).length,
   };
@@ -92,7 +99,7 @@ export default function Exercito({ usuario }) {
           <h1>Forças de Riften</h1>
           <p>
             Exército, mesnadas das casas nobres e milícia — tudo o que arma o Hold, somado
-            num lugar só. Divisões, hierarquia e soldo são editados aqui pela Corte.
+            num lugar só. Divisões, hierarquia, missões e soldo são editados aqui pela Corte e Comando.
           </p>
         </div>
         <div className="acoes">
@@ -132,7 +139,25 @@ export default function Exercito({ usuario }) {
                     pedidoAlistar={pedidoAlistar} aoConsumir={() => setPedidoAlistar(0)} />
       )}
       {aba === 'divisoes' && (
-        <PainelDivisoes dados={d} divisoes={divisoes} guardas={guardas} patentes={patentes} />
+        <PainelDivisoes
+          dados={d}
+          usuario={usuario}
+          divisoes={divisoes}
+          guardas={guardas}
+          patentes={patentes}
+          corte={corte}
+          aoNavegarParaMissoes={() => setAba('missoes')}
+        />
+      )}
+      {aba === 'missoes' && (
+        <PainelMissoes
+          dados={d}
+          usuario={usuario}
+          divisoes={divisoes}
+          guardas={guardas}
+          patentes={patentes}
+          corte={corte}
+        />
       )}
       {aba === 'hierarquia' && (
         <PainelHierarquia dados={d} patentes={patentes} guardas={guardas} />
